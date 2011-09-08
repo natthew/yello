@@ -3,7 +3,7 @@ import urllib
 import urllib2
 import json
 from twilio.rest import TwilioRestClient
-from django.http import HttpResponse
+#from django.http import HttpResponse
 import datetime
 
 
@@ -64,7 +64,6 @@ def request_response(signed_url):
 def build_url(host, path, **kwargs):
     base_url = "http://" + host + path + "?"
     url_args = []
-    print kwargs
     for key, value in kwargs.items():
         url_args.append(key + "=" + urllib.quote_plus(value))
     url = base_url + "&".join(url_args)
@@ -79,7 +78,7 @@ def yelp_search(message):
     if 'businesses' in response:
         first_business = response['businesses'][0]
         name = first_business['name']
-        location = first_business['location.display_address']
+        location = ' '.join(first_business['location']['display_address'][:-1])
         return name + ' at ' + location
     else:
         return "Undefined Error! Fix me!"
