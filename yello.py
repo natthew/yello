@@ -1,8 +1,31 @@
 import oauth2
-import optparse
 import urllib
 import urllib2
 import json
+from twilio.rest import TwilioRestClient
+from django.http import HttpResponse
+import datetime
+
+
+def respond_to_sms(request):
+    incoming = client.sms.messages.list(to=my_phone_number,
+                                        date_sent=datetime.date.today())
+    last_msg = incoming[0]
+    target = last_msg.from_
+    body = last_msg.body
+    reply = yelp_search(body)
+    response = client.sms.messages.create(to=target, from_=my_phone_number,
+                                          body=reply)
+    return HttpResponse(repr(response))
+
+
+def setup_twilio():
+    account, token = [x.split() for x in open('twilio.auth').readlines()]
+    global my_phone_number
+    my_phone_number = "+13232489357"
+    global client
+    client = TwilioRestClient(account, token)
+
 
 def parse_message(req):
     term, address = req.split('near')
@@ -48,6 +71,20 @@ def build_url(host, path, **kwargs):
     return url
 
 
+def yelp_search(message):
+    term, location = parse_message(message)
+    url = build_url(host, path, term=term, location=location)
+    signed_url = authenticate_request(url, *oauth_stuff)
+    response = request_response(signed_url)
+    if 'businesses' in response:
+        first_business = response['businesses'][0]
+        name = first_business['name']
+        location = first_business['location.display_address']
+        return name + ' at ' + location
+    else:
+        return "Undefined Error! Fix me!"
+    
+
 if __name__ == "__main__":
     oauth_stuff = (consumer_key, consumer_secret, token, token_secret) = [
         x.strip() for x in open("yelp.auth").readlines()]
@@ -56,13 +93,4 @@ if __name__ == "__main__":
     while True:
         print "Type your request, then press enter. Press ctrl-C to go home."
         message = raw_input("> ")
-        term, location = parse_message(message)
-        url = build_url(host, path, term=term, location=location)
-        signed_url = authenticate_request(url, *oauth_stuff)
-        response = request_response(signed_url)
-        if 'businesses' in response:
-            first_business = response['businesses'][0]
-            name = first_business['name']
-            print name
-        else:
-            print "Undefined Error! Fix me!"
+        print yelp_search(message)
