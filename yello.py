@@ -1,95 +1,102 @@
-import oauth2
+import datetime
+import json
 import urllib
 import urllib2
-import json
+
+import oauth2
+from flask import Flask
 from twilio.rest import TwilioRestClient
-#from django.http import HttpResponse
-import datetime
+
+MY_PHONE_NUMBER = '+13232489357'
+
+app = Flask(__name__)
+
+@app.route("/yello.xml")
+def hello():
+    twilio_client.respond_to_message()
+    return '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
+
+class TwilioResponseClient(object):
+    def __init__(self, keys, phone_number):
+        self.sid = keys['sid']
+        self.token = keys['token']
+        self.phone_number = phone_number
+        self.client = TwilioRestClient(self.sid, self.token)
+        self.message_cache = []
+
+    def respond_to_message(self):
+        incoming_messages = self.client.sms.messages.list(
+            to=self.phone_number, date_sent=datetime.date.today())
+#        latest_request = incoming_messages[0]
+#        latest_message = latest_request.body
+#        incoming_number = latest_request.from_
+        latest_message = 'derp'
+        incoming_number = '+16313386254'
+        #TODO: handle multiple messages / race conditions
+        query, location, filters = yelp_client.parse_message(latest_message)
+        search_result = yelp_client.search(query, location, filters)
+        self.client.sms.messages.create(to=incoming_number,
+            from_=self.phone_number, body=search_result)
 
 
-def respond_to_sms(request):
-    incoming = client.sms.messages.list(to=my_phone_number,
-                                        date_sent=datetime.date.today())
-    last_msg = incoming[0]
-    target = last_msg.from_
-    body = last_msg.body
-    reply = yelp_search(body)
-    response = client.sms.messages.create(to=target, from_=my_phone_number,
-                                          body=reply)
-    return HttpResponse(repr(response))
+class YelpAPIClient(object):
+    def __init__(self, keys):
+        self.consumer = oauth2.Consumer(keys['consumer_key'], keys['consumer_secret'])
+        self.token = oauth2.Token(keys['token'], keys['token_secret'])
 
+    def parse_message(self, message):
+        #TODO: implement me
+        return "pizza", "San Francisco", {}
 
-def setup_twilio():
-    account, token = [x.split() for x in open('twilio.auth').readlines()]
-    global my_phone_number
-    my_phone_number = "+13232489357"
-    global client
-    client = TwilioRestClient(account, token)
+    def authenticate_request(self, url):
+        request = oauth2.Request('GET', url, {})
+        request.update({
+            'oauth_nonce': oauth2.generate_nonce(),
+            'oauth_timestamp': oauth2.generate_timestamp(),
+            'oauth_token': self.token.key,
+            'oauth_consumer_key': self.consumer.key
+        })
+        request.sign_request(oauth2.SignatureMethod_HMAC_SHA1(), self.consumer, self.token)
+        signed_url = request.to_url()
+        return signed_url
 
+    def build_url(self, args):
+        base_url = "http://api.yelp.com/v2/search?"
+        url_args = []
+        for name, value in args.iteritems():
+            url_args.append("{0}={1}".format(name, urllib.quote_plus(value)))
+        url = base_url + "&".join(url_args)
+        return url
 
-def parse_message(req):
-    term, address = req.split('near')
-    return term.strip(), address.strip()
+    def search(self, query, location, filters={}):
+        args = {'term': query, 'location': location}
+        for name, value in filters:
+            args[name] = value
+        url = self.build_url(args)
+        print url
+        signed_url = self.authenticate_request(url)
 
-
-def authenticate_request(url, consumer_key, consumer_secret, token,
-                         token_secret):
-    consumer = oauth2.Consumer(consumer_key, consumer_secret)
-    oauth_request = oauth2.Request('GET', url, {})
-    oauth_request.update({'oauth_nonce': oauth2.generate_nonce(),
-                           'oauth_timestamp': oauth2.generate_timestamp(),
-                           'oauth_token': token,
-                           'oauth_consumer_key': consumer_key})
-
-    token = oauth2.Token(token, token_secret)
-    oauth_request.sign_request(oauth2.SignatureMethod_HMAC_SHA1(), consumer,
-                               token)
-    signed_url = oauth_request.to_url()
-    return signed_url
-
-
-def request_response(signed_url):
-    try:
-        conn = urllib2.urlopen(signed_url)
+        try:
+            conn = urllib2.urlopen(signed_url)
+        except urllib2.URLError:
+            return "Sorry, we're experiencing some technical difficulties. Try again later."
         try:
             response = json.loads(conn.read())
-        finally:
+        except ValueError:
             conn.close()
-    except urllib2.HTTPError, error:
-        response = json.loads(error.read())
+            return "Sorry, Yelp appears to be having some issues. Try again later."
 
-    return response
+        businesses = response.get('businesses')
+        if not businesses:
+            return "We couldn't find any results in that area. Try a different search."
+        business = businesses[0]
+        name = business['name']
+        address = ' '.join(business['location']['display_address'])
+        return "{0} at {1}".format(name, address)
 
-
-def build_url(host, path, **kwargs):
-    base_url = "http://" + host + path + "?"
-    url_args = []
-    for key, value in kwargs.items():
-        url_args.append(key + "=" + urllib.quote_plus(value))
-    url = base_url + "&".join(url_args)
-    return url
-
-
-def yelp_search(message):
-    term, location = parse_message(message)
-    url = build_url(host, path, term=term, location=location)
-    signed_url = authenticate_request(url, *oauth_stuff)
-    response = request_response(signed_url)
-    if 'businesses' in response:
-        first_business = response['businesses'][0]
-        name = first_business['name']
-        location = ' '.join(first_business['location']['display_address'][:-1])
-        return name + ' at ' + location
-    else:
-        return "Undefined Error! Fix me!"
-    
 
 if __name__ == "__main__":
-    oauth_stuff = (consumer_key, consumer_secret, token, token_secret) = [
-        x.strip() for x in open("yelp.auth").readlines()]
-    host = "api.yelp.com"
-    path = "/v2/search"
-    while True:
-        print "Type your request, then press enter. Press ctrl-C to go home."
-        message = raw_input("> ")
-        print yelp_search(message)
+    auth = json.load(open('auth'))
+    yelp_client = YelpAPIClient(auth['yelp'])
+    twilio_client = TwilioResponseClient(auth['twilio'], MY_PHONE_NUMBER)
+    app.run(debug=True)
