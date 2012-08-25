@@ -11,6 +11,10 @@ MY_PHONE_NUMBER = '+13232489357'
 
 app = Flask(__name__)
 
+@app.route("404")
+def four_oh_four():
+    return '404 not found bro'
+
 @app.route("/yello.xml")
 def hello():
     twilio_client.respond_to_message()
@@ -27,9 +31,9 @@ class TwilioResponseClient(object):
     def respond_to_message(self):
         incoming_messages = self.client.sms.messages.list(
             to=self.phone_number, date_sent=datetime.date.today())
-#        latest_request = incoming_messages[0]
-#        latest_message = latest_request.body
-#        incoming_number = latest_request.from_
+        latest_request = incoming_messages[0]
+        latest_message = latest_request.body
+        incoming_number = latest_request.from_
         latest_message = 'derp'
         incoming_number = '+16313386254'
         #TODO: handle multiple messages / race conditions
